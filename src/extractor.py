@@ -40,7 +40,14 @@ EXTRACTION_TOOL = {
             },
             "staatsangehoerigkeit": {
                 "type": ["string", "null"],
-                "description": "Staatsangehörigkeit (nationality). Often not on the document — return null if not present.",
+                "description": (
+                    "Staatsangehörigkeit (nationality). Nur dann ausfüllen wenn EXPLIZIT als "
+                    "'Staatsangehörigkeit', 'Nationalität', 'Staatsangeh.' oder mit Länderkürzel "
+                    "(z.B. 'DE', 'RO', 'TR', 'PL') auf dem Dokument vermerkt. "
+                    "WICHTIG: NIEMALS aus dem Namen, der Adresse oder anderem ableiten — auch nicht "
+                    "wenn der Name nach einer bestimmten Herkunft klingt. Im Zweifel null zurückgeben. "
+                    "Auf Standard-Lohnabrechnungen meist NICHT vorhanden."
+                ),
             },
             "geb_datum": {
                 "type": ["string", "null"],
@@ -100,9 +107,12 @@ EXTRACTION_TOOL = {
             "steuerklasse": {
                 "type": ["string", "null"],
                 "description": (
-                    "Lohnsteuerklasse / Steuerklasse. Eine Ziffer 1-6 (manchmal mit Faktor, "
-                    "z.B. '4/1.0'). Im Kopfbereich der Abrechnung in einem Feld 'Steuerklasse'. "
-                    "Nur die Ziffer (oder 'Ziffer/Faktor') zurückgeben."
+                    "Lohnsteuerklasse. EINE einzelne Ziffer von 1 bis 6 — z.B. '1', '3', '4', '5'. "
+                    "Steht im Kopfbereich der Lohnabrechnung in einer Tabelle direkt unter dem Header "
+                    "'Steuer- klasse' oder 'Steuerklasse' (oft die linkeste Spalte des Steuermerkmal-Blocks). "
+                    "WICHTIG: Nur die nackte Ziffer zurückgeben, OHNE Klasse-Präfix, OHNE Faktor, "
+                    "OHNE römische Zahlen. Beispiel: wenn auf der Abrechnung '1' unter 'Steuerklasse' steht, "
+                    "dann '1' zurückgeben — nicht 'Klasse 1', nicht 'I', nicht '1.0'."
                 ),
             },
             "konfession": {

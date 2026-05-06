@@ -185,19 +185,22 @@ QPlainTextEdit {{
 }}
 
 QCheckBox {{
-    color: {COLORS['text']}; padding: 6px 0; spacing: 10px;
-    font-size: 13px;
+    color: {COLORS['text']}; padding: 8px 0; spacing: 12px;
+    font-size: 14px;
 }}
 QCheckBox::indicator {{
-    width: 18px; height: 18px;
-    border: 1px solid {COLORS['border']};
-    border-radius: 4px; background: {COLORS['bg']};
+    width: 24px; height: 24px;
+    border: 2px solid {COLORS['border']};
+    border-radius: 5px; background: {COLORS['bg']};
 }}
 QCheckBox::indicator:hover {{ border-color: {COLORS['accent']}; }}
 QCheckBox::indicator:checked {{
-    background: {COLORS['accent']};
-    border-color: {COLORS['accent']};
-    image: none;
+    background: {COLORS['success']};
+    border: 2px solid {COLORS['success']};
+}}
+QCheckBox::indicator:checked:hover {{
+    background: {COLORS['success']};
+    border-color: {COLORS['success']};
 }}
 QMessageBox {{ background-color: {COLORS['bg_elevated']}; }}
 """
