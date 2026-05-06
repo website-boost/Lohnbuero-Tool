@@ -4,20 +4,23 @@ import os
 import random
 import sys
 import traceback
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, QSettings, QUrl
-from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont
+from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
-    QPlainTextEdit, QVBoxLayout, QWidget,
+    QPlainTextEdit, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from src.aggregator import aggregate_pages
 from src.excel_writer import write_records
 from src.extractor import extract_pages
+from src.models import EmployeeRecord
 from src.pdf_filler import fill_antrag_forms, fill_ib_forms
 from src.pdf_splitter import SUPPORTED_EXTENSIONS, load_pages
 from src.updater import (
@@ -76,55 +79,37 @@ QMainWindow, QWidget {{
     font-family: -apple-system, "SF Pro Display", "Segoe UI", sans-serif;
     font-size: 13px;
 }}
-
-QLabel {{
-    color: {COLORS['text']};
-    background: transparent;
-}}
-
-QLabel#title {{
-    font-size: 22px;
-    font-weight: 700;
-    color: {COLORS['text']};
-    padding: 0;
-}}
-
-QLabel#subtitle {{
-    font-size: 12px;
-    color: {COLORS['text_dim']};
-}}
-
+QLabel {{ color: {COLORS['text']}; background: transparent; }}
+QLabel#title {{ font-size: 22px; font-weight: 700; }}
+QLabel#subtitle {{ font-size: 12px; color: {COLORS['text_dim']}; }}
+QLabel#stepTitle {{ font-size: 18px; font-weight: 700; color: {COLORS['text']}; }}
+QLabel#stepHint {{ font-size: 12px; color: {COLORS['text_dim']}; }}
 QLabel#sectionLabel {{
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 11px; font-weight: 600;
     color: {COLORS['text_dim']};
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    text-transform: uppercase; letter-spacing: 1px;
 }}
-
-QLabel#pdfLabel {{
-    font-size: 13px;
-    color: {COLORS['cyan']};
-    padding: 4px 0;
-}}
-
+QLabel#pdfLabel {{ font-size: 13px; color: {COLORS['cyan']}; padding: 4px 0; }}
 QLabel#loadingMsg {{
-    font-size: 14px;
-    color: {COLORS['accent2']};
-    font-style: italic;
-    padding: 6px 0;
+    font-size: 16px; color: {COLORS['accent2']};
+    font-style: italic; padding: 8px 0;
 }}
+QLabel#bigCheck {{ font-size: 14px; padding: 4px 0; }}
+QLabel#stepIndicator {{ font-size: 11px; color: {COLORS['text_dim']}; }}
 
 QFrame#card {{
     background-color: {COLORS['bg_card']};
     border: 1px solid {COLORS['border']};
     border-radius: 12px;
 }}
-
 QFrame#header {{
     background-color: {COLORS['bg_elevated']};
     border-radius: 12px;
     border: 1px solid {COLORS['border']};
+}}
+QFrame#updateBanner {{
+    background-color: {COLORS['warning']};
+    border-radius: 10px;
 }}
 
 QPushButton {{
@@ -135,21 +120,15 @@ QPushButton {{
     padding: 8px 16px;
     font-weight: 500;
 }}
-
 QPushButton:hover {{
     background-color: {COLORS['border']};
     border-color: {COLORS['accent']};
 }}
-
-QPushButton:pressed {{
-    background-color: {COLORS['bg']};
-}}
-
+QPushButton:pressed {{ background-color: {COLORS['bg']}; }}
 QPushButton:disabled {{
     color: {COLORS['text_dim']};
     background-color: {COLORS['bg_card']};
 }}
-
 QPushButton#primary {{
     background-color: {COLORS['accent']};
     color: {COLORS['bg']};
@@ -158,15 +137,18 @@ QPushButton#primary {{
     font-size: 14px;
     padding: 12px 24px;
 }}
-
-QPushButton#primary:hover {{
-    background-color: {COLORS['cyan']};
-}}
-
+QPushButton#primary:hover {{ background-color: {COLORS['cyan']}; }}
 QPushButton#primary:disabled {{
     background-color: {COLORS['border']};
     color: {COLORS['text_dim']};
 }}
+QPushButton#updateBtn {{
+    background-color: {COLORS['bg']};
+    color: {COLORS['warning']};
+    border: none; border-radius: 6px;
+    padding: 6px 14px; font-weight: 700;
+}}
+QPushButton#updateBtn:hover {{ background-color: {COLORS['bg_card']}; }}
 
 QLineEdit {{
     background-color: {COLORS['bg']};
@@ -176,10 +158,7 @@ QLineEdit {{
     padding: 6px 10px;
     selection-background-color: {COLORS['accent']};
 }}
-
-QLineEdit:focus {{
-    border-color: {COLORS['accent']};
-}}
+QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
 
 QProgressBar {{
     background-color: {COLORS['bg']};
@@ -190,7 +169,6 @@ QProgressBar {{
     color: {COLORS['text']};
     font-weight: 600;
 }}
-
 QProgressBar::chunk {{
     background-color: {COLORS['accent']};
     border-radius: 7px;
@@ -204,63 +182,36 @@ QPlainTextEdit {{
     padding: 10px;
     font-family: "SF Mono", "Cascadia Code", "Menlo", monospace;
     font-size: 11px;
-    selection-background-color: {COLORS['accent']};
 }}
 
 QCheckBox {{
-    color: {COLORS['text']};
-    spacing: 10px;
-    padding: 4px 0;
+    color: {COLORS['text']}; padding: 6px 0; spacing: 10px;
+    font-size: 13px;
 }}
-
 QCheckBox::indicator {{
-    width: 18px;
-    height: 18px;
-    border: 2px solid {COLORS['border']};
-    border-radius: 4px;
-    background: {COLORS['bg']};
+    width: 18px; height: 18px;
+    border: 1px solid {COLORS['border']};
+    border-radius: 4px; background: {COLORS['bg']};
 }}
-
-QCheckBox::indicator:hover {{
-    border-color: {COLORS['accent']};
-}}
-
+QCheckBox::indicator:hover {{ border-color: {COLORS['accent']}; }}
 QCheckBox::indicator:checked {{
     background: {COLORS['accent']};
     border-color: {COLORS['accent']};
     image: none;
 }}
-
-QMessageBox {{
-    background-color: {COLORS['bg_elevated']};
-}}
-
-QFrame#updateBanner {{
-    background-color: {COLORS['warning']};
-    border-radius: 10px;
-}}
-
-QPushButton#updateBtn {{
-    background-color: {COLORS['bg']};
-    color: {COLORS['warning']};
-    border: none;
-    border-radius: 6px;
-    padding: 6px 14px;
-    font-weight: 700;
-}}
-
-QPushButton#updateBtn:hover {{
-    background-color: {COLORS['bg_card']};
-}}
+QMessageBox {{ background-color: {COLORS['bg_elevated']}; }}
 """
 
+
+# ---------------------------------------------------------------------------
+# Settings helpers
+# ---------------------------------------------------------------------------
 
 def get_api_key() -> str | None:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
         return key.strip()
-    settings = QSettings(ORG_NAME, APP_NAME)
-    stored = settings.value("api_key")
+    stored = QSettings(ORG_NAME, APP_NAME).value("api_key")
     return stored.strip() if stored else None
 
 
@@ -269,13 +220,11 @@ def store_api_key(key: str) -> None:
 
 
 def verify_api_key(api_key: str) -> tuple[bool, str]:
-    """Make a tiny API call to confirm the key works. Returns (ok, message)."""
+    """Tiny ping to confirm the key works."""
     import anthropic
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=4,
+        anthropic.Anthropic(api_key=api_key).messages.create(
+            model="claude-haiku-4-5", max_tokens=4,
             messages=[{"role": "user", "content": "ping"}],
         )
         return True, "ok"
@@ -285,38 +234,167 @@ def verify_api_key(api_key: str) -> tuple[bool, str]:
         return False, f"Verbindung fehlgeschlagen: {type(exc).__name__}: {exc}"
 
 
+# ---------------------------------------------------------------------------
+# Wizard state
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WizardState:
+    # Step 1: what to do
+    do_excel: bool = True
+    do_ib: bool = True
+    do_antrag: bool = True
+    # Step 2: templates + output location
+    excel_template: Path | None = None
+    ib_schema_f: Path | None = None       # optional pre-filled IB
+    antrag_schema_f: Path | None = None   # optional pre-filled Antrag
+    output_dir: Path | None = None
+    # Step 3: input files
+    input_files: list[Path] = field(default_factory=list)
+    # Results (Step 5)
+    last_records: list[EmployeeRecord] = field(default_factory=list)
+    last_excel_path: Path | None = None
+    last_uncertain: int = 0
+    last_ib_dir: Path | None = None
+    last_ib_count: int = 0
+    last_antrag_dir: Path | None = None
+    last_antrag_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Background workers
+# ---------------------------------------------------------------------------
+
+class UpdateCheckWorker(QThread):
+    found = Signal(object)
+
+    def run(self) -> None:
+        info = check_for_update()
+        if info is not None:
+            self.found.emit(info)
+
+
+class ExtractionWorker(QThread):
+    progress = Signal(int, int, str)
+    log = Signal(str)
+    # excel_path|None, records, num_uncertain, ib_dir|None, ib_count, antrag_dir|None, antrag_count
+    finished_ok = Signal(object, list, int, object, int, object, int)
+    failed = Signal(str)
+
+    def __init__(self, state: WizardState, api_key: str, model: str) -> None:
+        super().__init__()
+        self.state = state
+        self.api_key = api_key
+        self.model = model
+
+    def run(self) -> None:
+        s = self.state
+        try:
+            self.log.emit(f"Lade {len(s.input_files)} Datei(en)…")
+            all_pages = load_pages(s.input_files)
+            for path in s.input_files:
+                if path.suffix.lower() == ".pdf":
+                    from pypdf import PdfReader
+                    n = len(PdfReader(str(path)).pages)
+                    self.log.emit(f"  {path.name}: {n} Seite(n)")
+                else:
+                    self.log.emit(f"  {path.name}: 1 Bild")
+
+            total = len(all_pages)
+            self.log.emit(
+                f"Starte Extraktion ({total} Seiten, je 2 API-Aufrufe = "
+                f"{total*2} Calls)…"
+            )
+
+            def on_progress(done: int, _total: int) -> None:
+                self.progress.emit(done, total, f"{done} / {total} Seiten")
+
+            page_results = extract_pages(
+                all_pages, api_key=self.api_key, model=self.model,
+                max_workers=5, progress_cb=on_progress,
+            )
+            for p in page_results:
+                if p.error:
+                    self.log.emit(f"  ⚠ Seite {p.page_number}: {p.error}")
+
+            self.log.emit("Aggregiere Mitarbeiter…")
+            records = aggregate_pages(page_results)
+            num_uncertain = sum(1 for r in records if r.uncertain_fields)
+            self.log.emit(
+                f"  {len(records)} Mitarbeiter gefunden, "
+                f"{num_uncertain} mit unsicheren Feldern"
+            )
+
+            stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            excel_path: Path | None = None
+            if s.do_excel and records and s.excel_template and s.output_dir:
+                excel_path = s.output_dir / f"{stamp}_Stammdaten.xlsx"
+                self.log.emit(f"Schreibe Excel: {excel_path.name}")
+                wr = write_records(s.excel_template, excel_path, records)
+                self.log.emit(
+                    f"  → {len(wr.detected_columns)} Spalten erkannt: "
+                    f"{', '.join(sorted(wr.detected_columns.keys()))}"
+                )
+                if wr.fields_without_column:
+                    self.log.emit(
+                        f"  ⚠ Felder ohne passende Excel-Spalte: "
+                        f"{', '.join(wr.fields_without_column)} "
+                        f"(stehen aber in IB/Antrag falls aktiviert)"
+                    )
+
+            ib_dir, ib_count = None, 0
+            if s.do_ib and records and s.output_dir:
+                ib_dir = s.output_dir / f"{stamp}_IB"
+                schema_note = " (mit Schema-F)" if s.ib_schema_f else ""
+                self.log.emit(f"Erstelle IB-Bescheinigungen{schema_note} → {ib_dir.name}/")
+                paths = fill_ib_forms(records, ib_dir, schema_f_pdf=s.ib_schema_f)
+                ib_count = len(paths)
+
+            antrag_dir, antrag_count = None, 0
+            if s.do_antrag and records and s.output_dir:
+                antrag_dir = s.output_dir / f"{stamp}_Antraege"
+                schema_note = " (mit Schema-F)" if s.antrag_schema_f else ""
+                self.log.emit(f"Erstelle Anträge{schema_note} → {antrag_dir.name}/")
+                paths = fill_antrag_forms(records, antrag_dir, schema_f_pdf=s.antrag_schema_f)
+                antrag_count = len(paths)
+
+            self.finished_ok.emit(
+                excel_path, records, num_uncertain,
+                ib_dir, ib_count, antrag_dir, antrag_count,
+            )
+        except Exception:
+            self.failed.emit(traceback.format_exc())
+
+
+# ---------------------------------------------------------------------------
+# Drop zone widget (used in Step 3)
+# ---------------------------------------------------------------------------
+
 class DropZone(QLabel):
-    """Big label that accepts dragged PDF files."""
     files_dropped = Signal(list)
 
     def __init__(self) -> None:
         super().__init__()
         self.setText(
-            "<div style='font-size:32px; margin-bottom:8px;'>📄</div>"
+            "<div style='font-size:38px; margin-bottom:8px;'>📄</div>"
             "<div style='font-size:15px; font-weight:600;'>"
-            "Dokumente hierher ziehen</div>"
-            "<div style='font-size:12px; color:#7a88b8; margin-top:4px;'>"
+            "Lohnabrechnungen hierher ziehen</div>"
+            "<div style='font-size:12px; color:#7a88b8; margin-top:6px;'>"
             "PDF, JPG, PNG, GIF, WEBP — oder klicken zum Auswählen</div>"
         )
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumHeight(180)
+        self.setMinimumHeight(220)
         self._set_style(active=False)
         self.setAcceptDrops(True)
         self.setCursor(Qt.PointingHandCursor)
 
     def _set_style(self, active: bool) -> None:
-        if active:
-            self.setStyleSheet(
-                f"QLabel {{ border: 2px solid {COLORS['accent2']}; "
-                f"border-radius: 14px; background: {COLORS['bg_elevated']}; "
-                f"color: {COLORS['text']}; }}"
-            )
-        else:
-            self.setStyleSheet(
-                f"QLabel {{ border: 2px dashed {COLORS['border']}; "
-                f"border-radius: 14px; background: {COLORS['bg_card']}; "
-                f"color: {COLORS['text']}; }}"
-            )
+        border = COLORS['accent2'] if active else COLORS['border']
+        bg = COLORS['bg_elevated'] if active else COLORS['bg_card']
+        self.setStyleSheet(
+            f"QLabel {{ border: 2px {'solid' if active else 'dashed'} {border}; "
+            f"border-radius: 14px; background: {bg}; color: {COLORS['text']}; }}"
+        )
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
@@ -329,8 +407,7 @@ class DropZone(QLabel):
     def dropEvent(self, event: QDropEvent) -> None:
         self._set_style(active=False)
         paths = [
-            Path(url.toLocalFile())
-            for url in event.mimeData().urls()
+            Path(url.toLocalFile()) for url in event.mimeData().urls()
             if Path(url.toLocalFile()).suffix.lower() in SUPPORTED_EXTENSIONS
         ]
         if paths:
@@ -346,127 +423,418 @@ class DropZone(QLabel):
             self.files_dropped.emit([Path(f) for f in files])
 
 
-class UpdateCheckWorker(QThread):
-    """Background thread that checks GitHub Releases without blocking the UI."""
-    found = Signal(object)  # UpdateInfo
+# ---------------------------------------------------------------------------
+# Wizard step base + concrete steps
+# ---------------------------------------------------------------------------
 
-    def run(self) -> None:
-        info = check_for_update()
-        if info is not None:
-            self.found.emit(info)
+class StepBase(QWidget):
+    """Each wizard slide. on_enter is called when the step is shown."""
+    def __init__(self, parent: "MainWindow") -> None:
+        super().__init__(parent)
+        self.win = parent
+        self.state = parent.state
+
+    def on_enter(self) -> None:
+        pass
 
 
-class ExtractionWorker(QThread):
-    progress = Signal(int, int, str)
-    log = Signal(str)
-    # output_excel, records, num_uncertain, ib_dir|None, ib_count, antrag_dir|None, antrag_count
-    finished_ok = Signal(Path, list, int, object, int, object, int)
-    failed = Signal(str)
+def _step_header(title: str, hint: str) -> QVBoxLayout:
+    box = QVBoxLayout()
+    t = QLabel(title); t.setObjectName("stepTitle")
+    h = QLabel(hint); h.setObjectName("stepHint"); h.setWordWrap(True)
+    box.addWidget(t); box.addWidget(h)
+    box.addSpacing(8)
+    return box
 
-    def __init__(
-        self,
-        pdf_paths: list[Path],
-        template_path: Path,
-        output_path: Path,
-        api_key: str,
-        model: str,
-        do_ib: bool,
-        do_antrag: bool,
-    ) -> None:
-        super().__init__()
-        self.pdf_paths = pdf_paths
-        self.template_path = template_path
-        self.output_path = output_path
-        self.api_key = api_key
-        self.model = model
-        self.do_ib = do_ib
-        self.do_antrag = do_antrag
 
-    def run(self) -> None:
-        try:
-            self.log.emit(f"Lade {len(self.pdf_paths)} Datei(en)…")
-            all_pages = load_pages(self.pdf_paths)
-            for path in self.pdf_paths:
-                if path.suffix.lower() == ".pdf":
-                    from pypdf import PdfReader
-                    n = len(PdfReader(str(path)).pages)
-                    self.log.emit(f"  {path.name}: {n} Seite(n)")
-                else:
-                    self.log.emit(f"  {path.name}: 1 Bild")
+def _file_picker_row(line_edit: QLineEdit, btn_label: str, on_clear=None) -> QHBoxLayout:
+    row = QHBoxLayout()
+    row.addWidget(line_edit, stretch=1)
+    btn = QPushButton(btn_label)
+    btn.setProperty("picker", True)
+    row.addWidget(btn)
+    if on_clear is not None:
+        clear = QPushButton("✕")
+        clear.setMaximumWidth(36)
+        clear.clicked.connect(on_clear)
+        row.addWidget(clear)
+    return row, btn
 
-            total = len(all_pages)
-            self.log.emit(f"Starte Extraktion ({total} Seiten, je 2 API-Aufrufe = {total*2} Calls)…")
 
-            def on_progress(done: int, _total: int) -> None:
-                self.progress.emit(done, total, f"{done} / {total} Seiten")
+# ---- Step 1 ---------------------------------------------------------------
 
-            page_results = extract_pages(
-                all_pages,
-                api_key=self.api_key,
-                model=self.model,
-                max_workers=5,
-                progress_cb=on_progress,
+class Step1_What(StepBase):
+    def __init__(self, parent: "MainWindow") -> None:
+        super().__init__(parent)
+        outer = QVBoxLayout(self)
+        outer.addLayout(_step_header(
+            "Schritt 1 — Was soll erstellt werden?",
+            "Wähle aus, welche Dateien für diesen Insolvenzfall erzeugt werden sollen. "
+            "Du kannst alles oder nur Teile auswählen.",
+        ))
+
+        card = QFrame(); card.setObjectName("card")
+        cl = QVBoxLayout(card); cl.setContentsMargins(20, 16, 20, 16); cl.setSpacing(4)
+        self.cb_excel = QCheckBox("📊  Excel-Liste (Arbeitnehmer-Stammdaten)")
+        self.cb_ib    = QCheckBox("📋  IB-Bescheinigungen (1 PDF pro Mitarbeiter)")
+        self.cb_antrag= QCheckBox("📝  Anträge auf Insolvenzgeld (1 PDF pro Mitarbeiter)")
+        for cb, attr in [(self.cb_excel, "do_excel"), (self.cb_ib, "do_ib"), (self.cb_antrag, "do_antrag")]:
+            cb.setChecked(getattr(self.state, attr))
+            cl.addWidget(cb)
+        outer.addWidget(card)
+        outer.addStretch(1)
+
+        nav = QHBoxLayout()
+        nav.addStretch(1)
+        nxt = QPushButton("Weiter →"); nxt.setObjectName("primary")
+        nxt.clicked.connect(self._next)
+        nav.addWidget(nxt)
+        outer.addLayout(nav)
+
+    def on_enter(self) -> None:
+        # Defensive sync: state may have been reset by "Neuer Durchlauf"
+        self.cb_excel.setChecked(self.state.do_excel)
+        self.cb_ib.setChecked(self.state.do_ib)
+        self.cb_antrag.setChecked(self.state.do_antrag)
+
+    def _next(self) -> None:
+        self.state.do_excel = self.cb_excel.isChecked()
+        self.state.do_ib    = self.cb_ib.isChecked()
+        self.state.do_antrag= self.cb_antrag.isChecked()
+        if not (self.state.do_excel or self.state.do_ib or self.state.do_antrag):
+            QMessageBox.warning(self, "Auswahl fehlt", "Bitte mindestens eine Option ankreuzen.")
+            return
+        self.win.go_next()
+
+
+# ---- Step 2 ---------------------------------------------------------------
+
+class Step2_Templates(StepBase):
+    def __init__(self, parent: "MainWindow") -> None:
+        super().__init__(parent)
+        outer = QVBoxLayout(self); outer.setSpacing(12)
+        outer.addLayout(_step_header(
+            "Schritt 2 — Vorlagen & Speicherort",
+            "Wähle die Excel-Vorlage, den Ausgabe-Ordner und optional vorausgefüllte "
+            "PDF-Vorlagen ('Schema F'), aus denen die ja/nein-Antworten und Fall-Info "
+            "in jede neue Bescheinigung übernommen werden.",
+        ))
+
+        # --- Output folder ---
+        out_card = QFrame(); out_card.setObjectName("card")
+        ol = QVBoxLayout(out_card); ol.setContentsMargins(16, 12, 16, 12); ol.setSpacing(6)
+        ol.addWidget(self._mklabel("AUSGABE-ORDNER"))
+        ol.addWidget(self._mksub("Hier landen Excel + alle PDFs (mit Zeitstempel im Dateinamen)."))
+        self.out_edit = QLineEdit(); self.out_edit.setReadOnly(True)
+        self.out_edit.setPlaceholderText("Kein Ordner ausgewählt")
+        out_row, out_btn = _file_picker_row(self.out_edit, "Auswählen…")
+        out_btn.clicked.connect(self._pick_out)
+        ol.addLayout(out_row)
+        outer.addWidget(out_card)
+
+        # --- Excel template ---
+        self.xl_card = QFrame(); self.xl_card.setObjectName("card")
+        xl = QVBoxLayout(self.xl_card); xl.setContentsMargins(16, 12, 16, 12); xl.setSpacing(6)
+        xl.addWidget(self._mklabel("EXCEL-VORLAGE"))
+        xl.addWidget(self._mksub("Die leere Arbeitnehmer-Liste, die befüllt werden soll."))
+        self.xl_edit = QLineEdit(); self.xl_edit.setReadOnly(True)
+        self.xl_edit.setPlaceholderText("Keine Vorlage ausgewählt")
+        xl_row, xl_btn = _file_picker_row(self.xl_edit, "Auswählen…", on_clear=self._clear_xl)
+        xl_btn.clicked.connect(self._pick_xl)
+        xl.addLayout(xl_row)
+        outer.addWidget(self.xl_card)
+
+        # --- IB Schema-F ---
+        self.ib_card = QFrame(); self.ib_card.setObjectName("card")
+        ib = QVBoxLayout(self.ib_card); ib.setContentsMargins(16, 12, 16, 12); ib.setSpacing(6)
+        ib.addWidget(self._mklabel("IB-VORLAGE (OPTIONAL)"))
+        ib.addWidget(self._mksub(
+            "Eine bereits ausgefüllte IB-Bescheinigung mit den ja/nein-Antworten und "
+            "Fall-Daten für diesen Insolvenzfall. Wird auf jede neue IB übertragen."
+        ))
+        self.ib_edit = QLineEdit(); self.ib_edit.setReadOnly(True)
+        self.ib_edit.setPlaceholderText("Optional — ohne werden alle IB-Felder leer gelassen")
+        ib_row, ib_btn = _file_picker_row(self.ib_edit, "Auswählen…", on_clear=self._clear_ib)
+        ib_btn.clicked.connect(self._pick_ib)
+        ib.addLayout(ib_row)
+        outer.addWidget(self.ib_card)
+
+        # --- Antrag Schema-F ---
+        self.an_card = QFrame(); self.an_card.setObjectName("card")
+        an = QVBoxLayout(self.an_card); an.setContentsMargins(16, 12, 16, 12); an.setSpacing(6)
+        an.addWidget(self._mklabel("ANTRAG-VORLAGE (OPTIONAL)"))
+        an.addWidget(self._mksub(
+            "Ein bereits ausgefüllter Antrag mit den ja/nein-Antworten und Fall-Daten."
+        ))
+        self.an_edit = QLineEdit(); self.an_edit.setReadOnly(True)
+        self.an_edit.setPlaceholderText("Optional — ohne werden alle Antrag-Felder leer gelassen")
+        an_row, an_btn = _file_picker_row(self.an_edit, "Auswählen…", on_clear=self._clear_an)
+        an_btn.clicked.connect(self._pick_an)
+        an.addLayout(an_row)
+        outer.addWidget(self.an_card)
+
+        outer.addStretch(1)
+
+        nav = QHBoxLayout()
+        back = QPushButton("← Zurück"); back.clicked.connect(self.win.go_back)
+        nav.addWidget(back); nav.addStretch(1)
+        nxt = QPushButton("Weiter →"); nxt.setObjectName("primary")
+        nxt.clicked.connect(self._next)
+        nav.addWidget(nxt)
+        outer.addLayout(nav)
+
+    def _mklabel(self, t: str) -> QLabel:
+        l = QLabel(t); l.setObjectName("sectionLabel"); return l
+    def _mksub(self, t: str) -> QLabel:
+        l = QLabel(t); l.setObjectName("stepHint"); l.setWordWrap(True); return l
+
+    def on_enter(self) -> None:
+        # Show only the cards relevant to chosen outputs
+        self.xl_card.setVisible(self.state.do_excel)
+        self.ib_card.setVisible(self.state.do_ib)
+        self.an_card.setVisible(self.state.do_antrag)
+        # Restore previously chosen values
+        if self.state.output_dir: self.out_edit.setText(str(self.state.output_dir))
+        if self.state.excel_template: self.xl_edit.setText(str(self.state.excel_template))
+        if self.state.ib_schema_f: self.ib_edit.setText(str(self.state.ib_schema_f))
+        if self.state.antrag_schema_f: self.an_edit.setText(str(self.state.antrag_schema_f))
+
+    def _pick_out(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Ausgabe-Ordner wählen", str(Path.home() / "Desktop"))
+        if d:
+            self.state.output_dir = Path(d); self.out_edit.setText(d)
+
+    def _pick_xl(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(self, "Excel-Vorlage", "", "Excel (*.xlsx)")
+        if f: self.state.excel_template = Path(f); self.xl_edit.setText(f)
+    def _clear_xl(self) -> None: self.state.excel_template = None; self.xl_edit.clear()
+
+    def _pick_ib(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(self, "IB Schema-F", "", "PDF (*.pdf)")
+        if f: self.state.ib_schema_f = Path(f); self.ib_edit.setText(f)
+    def _clear_ib(self) -> None: self.state.ib_schema_f = None; self.ib_edit.clear()
+
+    def _pick_an(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(self, "Antrag Schema-F", "", "PDF (*.pdf)")
+        if f: self.state.antrag_schema_f = Path(f); self.an_edit.setText(f)
+    def _clear_an(self) -> None: self.state.antrag_schema_f = None; self.an_edit.clear()
+
+    def _next(self) -> None:
+        if not self.state.output_dir:
+            QMessageBox.warning(self, "Speicherort fehlt", "Bitte einen Ausgabe-Ordner auswählen.")
+            return
+        if self.state.do_excel and not self.state.excel_template:
+            QMessageBox.warning(self, "Excel-Vorlage fehlt", "Du hast Excel ausgewählt — bitte eine Vorlage angeben.")
+            return
+        self.win.go_next()
+
+
+# ---- Step 3 ---------------------------------------------------------------
+
+class Step3_Files(StepBase):
+    def __init__(self, parent: "MainWindow") -> None:
+        super().__init__(parent)
+        outer = QVBoxLayout(self); outer.setSpacing(12)
+        outer.addLayout(_step_header(
+            "Schritt 3 — Lohnabrechnungen einlesen",
+            "Zieh alle Lohnabrechnungen für diesen Insolvenzfall hier rein. "
+            "Eine PDF mit mehreren Seiten oder mehrere einzelne Dateien — beides geht.",
+        ))
+
+        self.drop = DropZone()
+        self.drop.files_dropped.connect(self._on_files)
+        outer.addWidget(self.drop)
+
+        self.file_label = QLabel(""); self.file_label.setObjectName("pdfLabel")
+        self.file_label.setAlignment(Qt.AlignCenter)
+        outer.addWidget(self.file_label)
+
+        outer.addStretch(1)
+
+        nav = QHBoxLayout()
+        back = QPushButton("← Zurück"); back.clicked.connect(self.win.go_back)
+        nav.addWidget(back); nav.addStretch(1)
+        self.go_btn = QPushButton("🚀  Los geht's"); self.go_btn.setObjectName("primary")
+        self.go_btn.clicked.connect(self._start)
+        nav.addWidget(self.go_btn)
+        outer.addLayout(nav)
+
+    def on_enter(self) -> None:
+        self._refresh_label()
+
+    def _on_files(self, paths: list[Path]) -> None:
+        self.state.input_files = paths
+        self._refresh_label()
+
+    def _refresh_label(self) -> None:
+        n = len(self.state.input_files)
+        if n == 0:
+            self.file_label.setText("Noch keine Datei ausgewählt.")
+        elif n == 1:
+            self.file_label.setText(f"📄  {self.state.input_files[0].name}")
+        else:
+            self.file_label.setText(f"📄  {n} Dateien ausgewählt")
+
+    def _start(self) -> None:
+        if not self.state.input_files:
+            QMessageBox.warning(self, "Keine Dokumente", "Bitte zuerst Dokumente reinziehen.")
+            return
+        self.win.start_extraction()
+
+
+# ---- Step 4 ---------------------------------------------------------------
+
+class Step4_Loading(StepBase):
+    def __init__(self, parent: "MainWindow") -> None:
+        super().__init__(parent)
+        outer = QVBoxLayout(self); outer.setSpacing(14)
+        outer.addLayout(_step_header(
+            "Schritt 4 — Bin am Werk…",
+            "Das kann ein paar Minuten dauern, je nach Anzahl der Seiten. "
+            "Du kannst dem Fortschritt unten zuschauen oder eine Pause machen.",
+        ))
+
+        self.spinner = QLabel("✨")
+        self.spinner.setAlignment(Qt.AlignCenter)
+        self.spinner.setStyleSheet("font-size: 48px; padding: 16px 0;")
+        outer.addWidget(self.spinner)
+
+        self.loading_msg = QLabel("")
+        self.loading_msg.setObjectName("loadingMsg")
+        self.loading_msg.setAlignment(Qt.AlignCenter)
+        outer.addWidget(self.loading_msg)
+
+        self.progress = QProgressBar()
+        outer.addWidget(self.progress)
+
+        log_label = QLabel("PROTOKOLL"); log_label.setObjectName("sectionLabel")
+        outer.addWidget(log_label)
+        self.log_box = QPlainTextEdit(); self.log_box.setReadOnly(True)
+        outer.addWidget(self.log_box, stretch=1)
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._rotate_msg)
+        self._used: list[str] = []
+
+    def on_enter(self) -> None:
+        self.log_box.clear()
+        self.progress.setValue(0)
+        self.progress.setFormat("Starte…")
+        self._used = []
+        self._rotate_msg()
+        self.timer.start(3500)
+
+    def stop(self) -> None:
+        self.timer.stop()
+
+    def append_log(self, msg: str) -> None:
+        self.log_box.appendPlainText(msg)
+
+    def set_progress(self, done: int, total: int, fmt: str) -> None:
+        self.progress.setMaximum(total)
+        self.progress.setValue(done)
+        self.progress.setFormat(fmt)
+
+    def _rotate_msg(self) -> None:
+        avail = [m for m in LOADING_MESSAGES if m not in self._used]
+        if not avail:
+            self._used = []; avail = LOADING_MESSAGES[:]
+        msg = random.choice(avail)
+        self._used.append(msg)
+        self.loading_msg.setText(msg)
+
+
+# ---- Step 5 ---------------------------------------------------------------
+
+class Step5_Done(StepBase):
+    def __init__(self, parent: "MainWindow") -> None:
+        super().__init__(parent)
+        outer = QVBoxLayout(self); outer.setSpacing(12)
+        outer.addLayout(_step_header(
+            "Fertig! 🎉",
+            "Alles erledigt. Hier eine Übersicht, was geschafft wurde.",
+        ))
+
+        self.results_card = QFrame(); self.results_card.setObjectName("card")
+        self.results_layout = QVBoxLayout(self.results_card)
+        self.results_layout.setContentsMargins(20, 16, 20, 16)
+        self.results_layout.setSpacing(8)
+        outer.addWidget(self.results_card)
+
+        outer.addStretch(1)
+
+        nav = QHBoxLayout()
+        self.open_folder_btn = QPushButton("📂  Ergebnis-Ordner öffnen")
+        self.open_folder_btn.clicked.connect(self._open_folder)
+        nav.addWidget(self.open_folder_btn)
+        nav.addStretch(1)
+        new_btn = QPushButton("🔄  Neuer Durchlauf"); new_btn.setObjectName("primary")
+        new_btn.clicked.connect(self.win.reset_for_new_run)
+        nav.addWidget(new_btn)
+        outer.addLayout(nav)
+
+    def on_enter(self) -> None:
+        # Clear previous results
+        while self.results_layout.count():
+            it = self.results_layout.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+
+        s = self.state
+        n = len(s.last_records)
+        if n == 0:
+            self._add_warn(
+                "Keine Mitarbeiter erkannt — schau ins Protokoll auf der vorigen Seite "
+                "(z.B. Schritt zurück), ob die Extraktion gescheitert ist."
+            )
+        else:
+            self._add_check(f"{n} Mitarbeiter aus den Lohnabrechnungen extrahiert")
+        if s.last_uncertain:
+            self._add_warn(
+                f"{s.last_uncertain} davon mit unsicheren Feldern (im Excel orange markiert)"
             )
 
-            errors = [p for p in page_results if p.error]
-            for p in errors:
-                self.log.emit(f"  ⚠ Seite {p.page_number}: {p.error}")
+        if s.last_excel_path:
+            self._add_check(f"Excel-Liste erstellt: {s.last_excel_path.name}")
+        if s.last_ib_dir:
+            note = " mit Schema-F-Übernahme" if s.ib_schema_f else ""
+            self._add_check(f"{s.last_ib_count} IB-Bescheinigungen erstellt{note}")
+        if s.last_antrag_dir:
+            note = " mit Schema-F-Übernahme" if s.antrag_schema_f else ""
+            self._add_check(f"{s.last_antrag_count} Anträge erstellt{note}")
 
-            self.log.emit("Aggregiere Mitarbeiter…")
-            records = aggregate_pages(page_results)
-            num_uncertain = sum(1 for r in records if r.uncertain_fields)
-            self.log.emit(f"  {len(records)} Mitarbeiter gefunden, {num_uncertain} mit unsicheren Feldern")
+        self.open_folder_btn.setEnabled(s.output_dir is not None)
 
-            self.log.emit(f"Schreibe Excel: {self.output_path.name}")
-            write_result = write_records(self.template_path, self.output_path, records)
-            self.log.emit(
-                f"  → {len(write_result.detected_columns)} Spalten in der Vorlage erkannt: "
-                f"{', '.join(sorted(write_result.detected_columns.keys()))}"
-            )
-            if write_result.fields_without_column:
-                self.log.emit(
-                    f"  ⚠ Daten für diese Felder konnten nicht ins Excel — keine passende "
-                    f"Spalte in deiner Vorlage: {', '.join(write_result.fields_without_column)} "
-                    f"(stehen aber in den IB/Antrag-PDFs falls aktiviert)"
-                )
+    def _add_check(self, text: str) -> None:
+        l = QLabel(f"<span style='color:{COLORS['success']}; font-size:16px;'>✓</span>  {text}")
+        l.setObjectName("bigCheck")
+        l.setWordWrap(True)
+        self.results_layout.addWidget(l)
 
-            ib_dir, ib_count = None, 0
-            antrag_dir, antrag_count = None, 0
+    def _add_warn(self, text: str) -> None:
+        l = QLabel(f"<span style='color:{COLORS['warning']}; font-size:16px;'>⚠</span>  {text}")
+        l.setObjectName("bigCheck")
+        l.setWordWrap(True)
+        self.results_layout.addWidget(l)
 
-            if self.do_ib and records:
-                ib_dir = self.output_path.parent / f"{self.output_path.stem}_IB"
-                self.log.emit(f"Erstelle IB-Bescheinigungen → {ib_dir.name}/")
-                paths = fill_ib_forms(records, ib_dir)
-                ib_count = len(paths)
+    def _open_folder(self) -> None:
+        if self.state.output_dir:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.state.output_dir)))
 
-            if self.do_antrag and records:
-                antrag_dir = self.output_path.parent / f"{self.output_path.stem}_Antrag"
-                self.log.emit(f"Erstelle Anträge → {antrag_dir.name}/")
-                paths = fill_antrag_forms(records, antrag_dir)
-                antrag_count = len(paths)
 
-            self.finished_ok.emit(
-                self.output_path, records, num_uncertain,
-                ib_dir, ib_count, antrag_dir, antrag_count,
-            )
-        except Exception:
-            self.failed.emit(traceback.format_exc())
-
+# ---------------------------------------------------------------------------
+# Main window with stacked wizard
+# ---------------------------------------------------------------------------
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Lohnbüro-Tool")
-        self.resize(780, 720)
+        self.resize(820, 760)
         self.setStyleSheet(STYLESHEET)
 
-        self.pdf_paths: list[Path] = []
-        self.template_path: Path | None = None
+        self.state = WizardState()
         self.worker: ExtractionWorker | None = None
-
-        self.loading_timer = QTimer(self)
-        self.loading_timer.timeout.connect(self._rotate_loading_msg)
-        self._used_messages: list[str] = []
+        self._pending_update: UpdateInfo | None = None
 
         central = QWidget()
         outer = QVBoxLayout(central)
@@ -474,125 +842,94 @@ class MainWindow(QMainWindow):
         outer.setSpacing(14)
 
         # --- Header ---
-        header = QFrame()
-        header.setObjectName("header")
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(20, 16, 20, 16)
+        header = QFrame(); header.setObjectName("header")
+        hl = QVBoxLayout(header); hl.setContentsMargins(20, 14, 20, 14)
         title_row = QHBoxLayout()
-        title = QLabel("✨ Lohnbüro-Tool")
-        title.setObjectName("title")
-        title_row.addWidget(title)
-        title_row.addStretch(1)
-        version_label = QLabel(f"v{__version__}")
-        version_label.setObjectName("subtitle")
-        title_row.addWidget(version_label)
-        header_layout.addLayout(title_row)
-        subtitle = QLabel("Stammdaten-Extraktion aus Lohnabrechnungen — powered by Claude AI")
-        subtitle.setObjectName("subtitle")
-        header_layout.addWidget(subtitle)
+        title = QLabel("✨ Lohnbüro-Tool"); title.setObjectName("title")
+        title_row.addWidget(title); title_row.addStretch(1)
+        api_btn = QPushButton("🔑 API-Key"); api_btn.clicked.connect(self.set_api_key)
+        title_row.addWidget(api_btn)
+        ver = QLabel(f"v{__version__}"); ver.setObjectName("subtitle")
+        title_row.addWidget(ver)
+        hl.addLayout(title_row)
+        self.step_indicator = QLabel(""); self.step_indicator.setObjectName("stepIndicator")
+        hl.addWidget(self.step_indicator)
         outer.addWidget(header)
 
-        # --- Update banner (hidden until a new version is found) ---
-        self.update_banner = QFrame()
-        self.update_banner.setObjectName("updateBanner")
-        ub_layout = QHBoxLayout(self.update_banner)
-        ub_layout.setContentsMargins(16, 10, 16, 10)
+        # --- Update banner ---
+        self.update_banner = QFrame(); self.update_banner.setObjectName("updateBanner")
+        ub = QHBoxLayout(self.update_banner); ub.setContentsMargins(16, 10, 16, 10)
         self.update_label = QLabel("")
         self.update_label.setStyleSheet("color: #1a1b26; font-weight: 600;")
-        ub_layout.addWidget(self.update_label, stretch=1)
-        self.update_btn = QPushButton("Jetzt installieren")
-        self.update_btn.setObjectName("updateBtn")
+        ub.addWidget(self.update_label, stretch=1)
+        self.update_btn = QPushButton("Jetzt installieren"); self.update_btn.setObjectName("updateBtn")
         self.update_btn.clicked.connect(self.install_update)
-        ub_layout.addWidget(self.update_btn)
+        ub.addWidget(self.update_btn)
         self.update_banner.setVisible(False)
         outer.addWidget(self.update_banner)
-        self._pending_update: UpdateInfo | None = None
 
-        # --- Drop zone ---
-        self.drop = DropZone()
-        self.drop.files_dropped.connect(self.on_files_dropped)
-        outer.addWidget(self.drop)
-
-        self.pdf_label = QLabel("Noch keine Datei ausgewählt.")
-        self.pdf_label.setObjectName("pdfLabel")
-        self.pdf_label.setAlignment(Qt.AlignCenter)
-        outer.addWidget(self.pdf_label)
-
-        # --- Template picker card ---
-        tpl_card = QFrame()
-        tpl_card.setObjectName("card")
-        tpl_layout = QVBoxLayout(tpl_card)
-        tpl_layout.setContentsMargins(16, 12, 16, 12)
-        tpl_layout.setSpacing(8)
-        tpl_label = QLabel("EXCEL-VORLAGE")
-        tpl_label.setObjectName("sectionLabel")
-        tpl_layout.addWidget(tpl_label)
-
-        tpl_row = QHBoxLayout()
-        self.tpl_edit = QLineEdit()
-        self.tpl_edit.setReadOnly(True)
-        self.tpl_edit.setPlaceholderText("Keine Vorlage ausgewählt")
-        tpl_row.addWidget(self.tpl_edit, stretch=1)
-        tpl_btn = QPushButton("Auswählen…")
-        tpl_btn.clicked.connect(self.pick_template)
-        tpl_row.addWidget(tpl_btn)
-        tpl_layout.addLayout(tpl_row)
-        outer.addWidget(tpl_card)
-
-        # --- Action buttons ---
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-        self.start_btn = QPushButton("🚀  Extraktion starten")
-        self.start_btn.setObjectName("primary")
-        self.start_btn.clicked.connect(self.start_extraction)
-        btn_row.addWidget(self.start_btn, stretch=1)
-        self.api_btn = QPushButton("🔑  API-Key")
-        self.api_btn.clicked.connect(self.set_api_key)
-        btn_row.addWidget(self.api_btn)
-        outer.addLayout(btn_row)
-
-        # --- Optional outputs (checkboxes) ---
-        opts_card = QFrame()
-        opts_card.setObjectName("card")
-        opts_layout = QVBoxLayout(opts_card)
-        opts_layout.setContentsMargins(16, 12, 16, 12)
-        opts_layout.setSpacing(8)
-        opts_label = QLabel("ZUSÄTZLICH GENERIEREN")
-        opts_label.setObjectName("sectionLabel")
-        opts_layout.addWidget(opts_label)
-        self.cb_ib = QCheckBox("📋  IB-Bescheinigungen vorbereiten (1 PDF pro Mitarbeiter)")
-        self.cb_ib.setChecked(True)
-        opts_layout.addWidget(self.cb_ib)
-        self.cb_antrag = QCheckBox("📝  Anträge auf Insolvenzgeld vorbereiten (1 PDF pro Mitarbeiter)")
-        self.cb_antrag.setChecked(True)
-        opts_layout.addWidget(self.cb_antrag)
-        outer.addWidget(opts_card)
-
-        # --- Progress + loading message ---
-        self.progress = QProgressBar()
-        self.progress.setVisible(False)
-        outer.addWidget(self.progress)
-
-        self.loading_msg = QLabel("")
-        self.loading_msg.setObjectName("loadingMsg")
-        self.loading_msg.setAlignment(Qt.AlignCenter)
-        self.loading_msg.setVisible(False)
-        outer.addWidget(self.loading_msg)
-
-        # --- Log ---
-        log_label = QLabel("PROTOKOLL")
-        log_label.setObjectName("sectionLabel")
-        outer.addWidget(log_label)
-        self.log_box = QPlainTextEdit()
-        self.log_box.setReadOnly(True)
-        outer.addWidget(self.log_box, stretch=1)
+        # --- Wizard stack ---
+        self.stack = QStackedWidget()
+        self.steps = [
+            Step1_What(self),
+            Step2_Templates(self),
+            Step3_Files(self),
+            Step4_Loading(self),
+            Step5_Done(self),
+        ]
+        for step in self.steps:
+            self.stack.addWidget(step)
+        outer.addWidget(self.stack, stretch=1)
 
         self.setCentralWidget(central)
+        self._goto(0)
 
-        # Kick off update check in the background (silent on failure / no update).
+        # Background update check
         self._update_worker = UpdateCheckWorker(self)
         self._update_worker.found.connect(self._show_update_banner)
         self._update_worker.start()
+
+    # --- Navigation ---
+
+    def _goto(self, idx: int) -> None:
+        idx = max(0, min(idx, len(self.steps) - 1))
+        self.stack.setCurrentIndex(idx)
+        names = ["1. Auswahl", "2. Vorlagen", "3. Dokumente", "4. Verarbeitung", "5. Fertig"]
+        self.step_indicator.setText(" → ".join(
+            f"<b style='color:{COLORS['accent']}'>{n}</b>" if i == idx else n
+            for i, n in enumerate(names)
+        ))
+        self.steps[idx].on_enter()
+
+    def go_next(self) -> None:
+        self._goto(self.stack.currentIndex() + 1)
+
+    def go_back(self) -> None:
+        self._goto(self.stack.currentIndex() - 1)
+
+    def reset_for_new_run(self) -> None:
+        # Keep templates + output dir for convenience; reset inputs + results
+        self.state.input_files = []
+        self.state.last_records = []
+        self.state.last_excel_path = None
+        self.state.last_uncertain = 0
+        self.state.last_ib_dir = None
+        self.state.last_ib_count = 0
+        self.state.last_antrag_dir = None
+        self.state.last_antrag_count = 0
+        self._goto(0)
+
+    # --- API key ---
+
+    def set_api_key(self) -> None:
+        current = get_api_key() or ""
+        key, ok = QInputDialog.getText(
+            self, "Anthropic API-Key", "API-Key (sk-ant-…):",
+            QLineEdit.Password, current,
+        )
+        if ok and key.strip():
+            store_api_key(key.strip())
+            QMessageBox.information(self, "Gespeichert", "API-Key wurde gespeichert.")
 
     # --- Update flow ---
 
@@ -600,20 +937,20 @@ class MainWindow(QMainWindow):
         self._pending_update = info
         if is_frozen_exe():
             self.update_label.setText(
-                f"🎉 Update verfügbar: Version {info.latest_version} (du nutzt {__version__})"
+                f"🎉 Update verfügbar: Version {info.latest_version} "
+                f"(du nutzt {__version__})"
             )
             self.update_btn.setVisible(True)
         else:
-            # Dev mode (running from source) — show info but no install button
             self.update_label.setText(
-                f"🎉 Neue Version {info.latest_version} ist verfügbar (Dev-Modus — Update via git pull)"
+                f"🎉 Neue Version {info.latest_version} verfügbar "
+                f"(Dev-Modus — Update via git pull)"
             )
             self.update_btn.setVisible(False)
         self.update_banner.setVisible(True)
 
     def install_update(self) -> None:
-        if not self._pending_update:
-            return
+        if not self._pending_update: return
         info = self._pending_update
         reply = QMessageBox.question(
             self, "Update installieren",
@@ -621,8 +958,7 @@ class MainWindow(QMainWindow):
             f"Das Programm startet danach automatisch neu.\n\nFortfahren?",
             QMessageBox.Yes | QMessageBox.No,
         )
-        if reply != QMessageBox.Yes:
-            return
+        if reply != QMessageBox.Yes: return
         self.update_label.setText(f"⬇️  Lade Version {info.latest_version}…")
         self.update_btn.setEnabled(False)
         QApplication.processEvents()
@@ -630,173 +966,73 @@ class MainWindow(QMainWindow):
             download_and_apply_update(info)
         except Exception as exc:
             self.update_btn.setEnabled(True)
-            QMessageBox.critical(
-                self, "Update fehlgeschlagen",
-                f"Das Update konnte nicht installiert werden:\n\n{exc}",
-            )
+            QMessageBox.critical(self, "Update fehlgeschlagen", str(exc))
 
-    # --- Loading message rotation ---
-
-    def _rotate_loading_msg(self) -> None:
-        available = [m for m in LOADING_MESSAGES if m not in self._used_messages]
-        if not available:
-            self._used_messages = []
-            available = LOADING_MESSAGES[:]
-        msg = random.choice(available)
-        self._used_messages.append(msg)
-        self.loading_msg.setText(msg)
-
-    def _start_loading_animation(self) -> None:
-        self.loading_msg.setVisible(True)
-        self._used_messages = []
-        self._rotate_loading_msg()
-        self.loading_timer.start(3500)
-
-    def _stop_loading_animation(self) -> None:
-        self.loading_timer.stop()
-        self.loading_msg.setVisible(False)
-
-    # --- Slots ---
-
-    def on_files_dropped(self, paths: list[Path]) -> None:
-        self.pdf_paths = paths
-        if len(paths) == 1:
-            self.pdf_label.setText(f"📄  {paths[0].name}")
-        else:
-            self.pdf_label.setText(f"📄  {len(paths)} Dateien ausgewählt")
-
-    def pick_template(self) -> None:
-        f, _ = QFileDialog.getOpenFileName(
-            self, "Excel-Vorlage auswählen", "", "Excel-Dateien (*.xlsx)"
-        )
-        if f:
-            self.template_path = Path(f)
-            self.tpl_edit.setText(f)
-
-    def set_api_key(self) -> None:
-        current = get_api_key() or ""
-        key, ok = QInputDialog.getText(
-            self, "Anthropic API-Key",
-            "API-Key (sk-ant-…):",
-            QLineEdit.Password,
-            current,
-        )
-        if ok and key.strip():
-            store_api_key(key.strip())
-            self.log("🔑 API-Key gespeichert.")
-
-    def log(self, msg: str) -> None:
-        self.log_box.appendPlainText(msg)
+    # --- Extraction ---
 
     def start_extraction(self) -> None:
-        if not self.pdf_paths:
-            QMessageBox.warning(self, "Fehlende PDF", "Bitte zuerst PDF(s) auswählen.")
-            return
-        if not self.template_path:
-            QMessageBox.warning(self, "Fehlende Vorlage", "Bitte Excel-Vorlage auswählen.")
-            return
         api_key = get_api_key()
         if not api_key:
-            QMessageBox.warning(self, "Fehlender API-Key", "Bitte API-Key über den Button setzen.")
-            return
-
-        self.log("Prüfe API-Key…")
-        QApplication.processEvents()
-        ok, msg = verify_api_key(api_key)
-        if not ok:
-            self.log(f"❌ {msg}")
-            QMessageBox.critical(
-                self, "API-Key Problem",
-                f"{msg}\n\nBitte über den Button 'API-Key' einen gültigen Key setzen.\n"
-                f"(Tipp: nur den Key kopieren, ohne Anführungszeichen oder Leerzeichen.)",
+            QMessageBox.warning(
+                self, "API-Key fehlt",
+                "Bitte zuerst oben rechts den API-Key setzen.",
             )
             return
-        self.log("✓ API-Key ok")
 
-        suggested = self.pdf_paths[0].with_name(
-            self.pdf_paths[0].stem + "_extrahiert.xlsx"
-        )
-        out, _ = QFileDialog.getSaveFileName(
-            self, "Ergebnis speichern unter", str(suggested), "Excel-Dateien (*.xlsx)"
-        )
-        if not out:
+        # Quick ping to fail fast on bad key
+        ok, msg = verify_api_key(api_key)
+        if not ok:
+            QMessageBox.critical(
+                self, "API-Key Problem",
+                f"{msg}\n\nBitte über den Button 'API-Key' oben einen gültigen Key setzen.",
+            )
             return
-        output_path = Path(out)
+
+        self._goto(3)  # loading slide
+        loading = self.steps[3]
+        assert isinstance(loading, Step4_Loading)
+        loading.append_log(f"✓ API-Key ok (Modell: {os.environ.get('ANTHROPIC_MODEL', 'claude-opus-4-7')})")
 
         model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
-        self.start_btn.setEnabled(False)
-        self.progress.setVisible(True)
-        self.progress.setValue(0)
-        self.log_box.clear()
-        self._start_loading_animation()
-
-        self.worker = ExtractionWorker(
-            self.pdf_paths, self.template_path, output_path, api_key, model,
-            do_ib=self.cb_ib.isChecked(),
-            do_antrag=self.cb_antrag.isChecked(),
-        )
-        self.worker.progress.connect(self.on_progress)
-        self.worker.log.connect(self.log)
-        self.worker.finished_ok.connect(self.on_finished)
-        self.worker.failed.connect(self.on_failed)
+        self.worker = ExtractionWorker(self.state, api_key, model)
+        self.worker.progress.connect(loading.set_progress)
+        self.worker.log.connect(loading.append_log)
+        self.worker.finished_ok.connect(self._on_extraction_done)
+        self.worker.failed.connect(self._on_extraction_failed)
         self.worker.start()
 
-    def on_progress(self, done: int, total: int, msg: str) -> None:
-        self.progress.setMaximum(total)
-        self.progress.setValue(done)
-        self.progress.setFormat(msg)
-
-    def on_finished(
-        self, output_path: Path, records: list, num_uncertain: int,
-        ib_dir, ib_count: int, antrag_dir, antrag_count: int,
+    def _on_extraction_done(
+        self, excel_path, records, num_uncertain,
+        ib_dir, ib_count, antrag_dir, antrag_count,
     ) -> None:
-        self._stop_loading_animation()
-        self.start_btn.setEnabled(True)
-        num_records = len(records)
-        lines = [
-            f"✅ Fertig!",
-            f"  • {num_records} Mitarbeiter ins Excel geschrieben "
-            f"({num_uncertain} mit unsicheren Feldern, orange markiert)",
-        ]
-        if ib_dir:
-            lines.append(f"  • {ib_count} IB-Bescheinigungen in {ib_dir.name}/")
-        if antrag_dir:
-            lines.append(f"  • {antrag_count} Anträge in {antrag_dir.name}/")
-        self.log("\n" + "\n".join(lines))
+        loading = self.steps[3]
+        if isinstance(loading, Step4_Loading): loading.stop()
 
-        msg_lines = [f"{num_records} Mitarbeiter eingetragen."]
-        if num_uncertain:
-            msg_lines.append(f"{num_uncertain} mit unsicheren Feldern (orange — bitte prüfen).")
-        if ib_dir:
-            msg_lines.append(f"{ib_count} IB-Bescheinigungen erstellt.")
-        if antrag_dir:
-            msg_lines.append(f"{antrag_count} Anträge erstellt.")
-        msg_lines.append("")
-        msg_lines.append(f"Excel: {output_path.name}")
-        msg_lines.append("")
-        msg_lines.append("Ordner jetzt öffnen?")
+        self.state.last_records = records
+        self.state.last_excel_path = excel_path
+        self.state.last_uncertain = num_uncertain
+        self.state.last_ib_dir = ib_dir
+        self.state.last_ib_count = ib_count
+        self.state.last_antrag_dir = antrag_dir
+        self.state.last_antrag_count = antrag_count
+        self._goto(4)
 
-        reply = QMessageBox.information(
-            self, "Fertig",
-            "\n".join(msg_lines),
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            # Open the Excel parent folder so the user sees Excel + form folders together
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_path.parent)))
-
-    def on_failed(self, error: str) -> None:
-        self._stop_loading_animation()
-        self.start_btn.setEnabled(True)
-        self.log(f"\n❌ Fehler:\n{error}")
+    def _on_extraction_failed(self, error: str) -> None:
+        loading = self.steps[3]
+        if isinstance(loading, Step4_Loading):
+            loading.stop()
+            loading.append_log(f"\n❌ Fehler:\n{error}")
         QMessageBox.critical(self, "Fehler", f"Extraktion fehlgeschlagen:\n\n{error}")
+        # Don't strand the user on the loading slide — go back to file selection
+        # so they can adjust and retry without restarting the wizard.
+        self._goto(2)
 
 
 def main() -> None:
     app = QApplication(sys.argv)
     app.setOrganizationName(ORG_NAME)
     app.setApplicationName(APP_NAME)
-    app.setStyle("Fusion")  # consistent look across platforms
+    app.setStyle("Fusion")
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

@@ -97,22 +97,60 @@ def _safe_filename_part(s: str) -> str:
     return s or "Unbekannt"
 
 
+def read_template_values(pdf_path: Path) -> dict[str, str]:
+    """Extract all populated AcroForm field values from a filled PDF.
+
+    Use case: father fills out one Antrag (or IB) per case with the case-wide
+    info — Insolvenzgeld-Nr, employer info, all the yes/no checkboxes — and
+    that filled PDF becomes the "Schema F" template. We read those values
+    here and apply them to every newly generated PDF in the batch, on top
+    of which the per-employee Stammdaten get overlaid.
+
+    Skips empty text fields and unselected (`/Off`) checkboxes/radios.
+    Keeps the `/<value>` form for button states so pypdf round-trips them.
+    """
+    reader = PdfReader(str(pdf_path))
+    fields = reader.get_fields() or {}
+    out: dict[str, str] = {}
+    for name, f in fields.items():
+        v = f.get("/V")
+        if v is None:
+            continue
+        s = str(v)
+        if s in ("", "/Off"):
+            continue
+        out[name] = s
+    return out
+
+
 def _fill_pdf(
     template: Path,
     record: EmployeeRecord,
     field_map: dict[str, Callable[[EmployeeRecord], str]],
     output_path: Path,
+    base_values: dict[str, str] | None = None,
 ) -> None:
-    """Fill a single AcroForm PDF with one employee's data."""
+    """Fill a single AcroForm PDF with one employee's data.
+
+    `base_values` are case-wide answers from a "Schema F" template PDF
+    (yes/no checkboxes, Insolvenzgeld-Nr, employer info, etc.). They get
+    applied first; per-employee Stammdaten from `field_map` overwrite any
+    overlap so personal data always wins.
+    """
     reader = PdfReader(str(template))
     writer = PdfWriter(clone_from=reader)
 
-    values = {fname: fn(record) for fname, fn in field_map.items()}
-    values = {k: v for k, v in values.items() if v}  # drop empty
+    record_values = {fname: fn(record) for fname, fn in field_map.items()}
+    record_values = {k: v for k, v in record_values.items() if v}
+
+    final_values: dict[str, str] = {}
+    if base_values:
+        final_values.update(base_values)
+    final_values.update(record_values)  # per-employee values win
 
     for page in writer.pages:
         try:
-            writer.update_page_form_field_values(page, values, auto_regenerate=False)
+            writer.update_page_form_field_values(page, final_values, auto_regenerate=False)
         except Exception:
             # Some pages have no form fields — skip silently.
             pass
@@ -133,9 +171,16 @@ def fill_forms(
     template: Path,
     field_map: dict[str, Callable[[EmployeeRecord], str]],
     prefix: str,
+    schema_f_pdf: Path | None = None,
 ) -> list[Path]:
-    """Fill `template` once per employee. Returns list of generated paths."""
+    """Fill `template` once per employee. Returns list of generated paths.
+
+    If `schema_f_pdf` is given, all field values from that pre-filled PDF are
+    used as a baseline for every output (case-wide answers like yes/no
+    checkboxes). Per-employee fields still come from `field_map`.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
+    base_values = read_template_values(schema_f_pdf) if schema_f_pdf else None
     paths: list[Path] = []
     for r in records:
         name = _safe_filename_part(r.data.name or "")
@@ -143,14 +188,22 @@ def fill_forms(
         pers = _safe_filename_part(r.data.pers_nr or "")
         stem = "_".join(p for p in [prefix, name, vorname, pers] if p and p != "Unbekannt")
         out = output_dir / f"{stem}.pdf"
-        _fill_pdf(template, r, field_map, out)
+        _fill_pdf(template, r, field_map, out, base_values=base_values)
         paths.append(out)
     return paths
 
 
-def fill_ib_forms(records: list[EmployeeRecord], output_dir: Path) -> list[Path]:
-    return fill_forms(records, output_dir, IB_TEMPLATE, IB_FIELD_MAP, "IB")
+def fill_ib_forms(
+    records: list[EmployeeRecord],
+    output_dir: Path,
+    schema_f_pdf: Path | None = None,
+) -> list[Path]:
+    return fill_forms(records, output_dir, IB_TEMPLATE, IB_FIELD_MAP, "IB", schema_f_pdf)
 
 
-def fill_antrag_forms(records: list[EmployeeRecord], output_dir: Path) -> list[Path]:
-    return fill_forms(records, output_dir, ANTRAG_TEMPLATE, ANTRAG_FIELD_MAP, "Antrag")
+def fill_antrag_forms(
+    records: list[EmployeeRecord],
+    output_dir: Path,
+    schema_f_pdf: Path | None = None,
+) -> list[Path]:
+    return fill_forms(records, output_dir, ANTRAG_TEMPLATE, ANTRAG_FIELD_MAP, "Antrag", schema_f_pdf)
