@@ -418,7 +418,17 @@ class ExtractionWorker(QThread):
             self.log.emit(f"  {len(records)} Mitarbeiter gefunden, {num_uncertain} mit unsicheren Feldern")
 
             self.log.emit(f"Schreibe Excel: {self.output_path.name}")
-            write_records(self.template_path, self.output_path, records)
+            write_result = write_records(self.template_path, self.output_path, records)
+            self.log.emit(
+                f"  → {len(write_result.detected_columns)} Spalten in der Vorlage erkannt: "
+                f"{', '.join(sorted(write_result.detected_columns.keys()))}"
+            )
+            if write_result.fields_without_column:
+                self.log.emit(
+                    f"  ⚠ Daten für diese Felder konnten nicht ins Excel — keine passende "
+                    f"Spalte in deiner Vorlage: {', '.join(write_result.fields_without_column)} "
+                    f"(stehen aber in den IB/Antrag-PDFs falls aktiviert)"
+                )
 
             ib_dir, ib_count = None, 0
             antrag_dir, antrag_count = None, 0

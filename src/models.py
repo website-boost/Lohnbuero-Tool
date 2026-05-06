@@ -33,25 +33,42 @@ STAMMDATEN_FIELDS: list[tuple[str, str]] = [
     ("geldinstitut", "Geldinstitut"),
 ]
 
-EXCEL_COLUMN_MAP: dict[str, str] = {
-    "pers_nr": "A",
-    "anrede": "B",
-    "name": "C",
-    "vorname": "D",
-    "staatsangehoerigkeit": "E",
-    "geb_datum": "F",
-    "geschlecht": "G",
-    # H = Alter (formula, do not write)
-    "familienstand": "I",
-    "strasse": "J",
-    "hausnummer": "K",
-    "plz": "L",
-    "ort": "M",
-    "eintritt": "N",
-    "austritt": "O",
-    "teilzeit_vollzeit": "P",
-    "sv_nr": "Q",
-    "steuer_id": "R",
+# Header-label aliases per field. Used by excel_writer.detect_column_map() to
+# auto-discover which Excel column a field belongs to, so the same code works
+# with templates that have extra columns (IBAN, Bankdaten, Steuerklasse, …)
+# in different positions.
+#
+# Add more variants here whenever a customer template uses a label we don't
+# recognize yet. Comparison is loose: case-insensitive, whitespace and punctuation
+# stripped, ä→ae / ö→oe / ü→ue / ß→ss applied automatically — so "Pers.-Nr.",
+# "pers nr", "PERSONALNUMMER" all collapse to the same key.
+FIELD_LABEL_ALIASES: dict[str, list[str]] = {
+    "pers_nr":              ["Pers-Nr", "Pers Nr", "Pers.-Nr.", "Personalnummer", "Personal-Nr", "Personal Nr", "Personal", "Personal #"],
+    "anrede":               ["Anrede"],
+    "name":                 ["Name", "Nachname", "Familienname", "Name (Nachname)"],
+    "vorname":              ["Vorname", "Vornamen", "Vorname(n)"],
+    "staatsangehoerigkeit": ["Staatsangehörigkeit", "Staatsangeh.", "Staatsangeh", "Nationalität", "Staat"],
+    "geb_datum":            ["GebDatum", "Geb.Datum", "Geb. Datum", "Geb-Datum", "Geburtsdatum", "Geboren am", "Geb."],
+    "geschlecht":           ["Geschlecht", "Geschl.", "Geschl", "G", "m/w", "m/w/d"],
+    "familienstand":        ["Familienstand", "Fam.stand", "Fam. Stand"],
+    "strasse":              ["Straße", "Strasse", "Str.", "Straßenname", "Strassenname"],
+    "hausnummer":           ["H#", "Hausnummer", "Haus-Nr", "Haus.Nr", "Haus.-Nr.", "HNr", "H-Nr", "H.Nr", "Nr."],
+    "plz":                  ["PLZ", "Postleitzahl", "Plz"],
+    "ort":                  ["Ort", "Wohnort", "Stadt"],
+    "eintritt":             ["Eintritt", "Eintrittsdatum", "Beginn", "Beschäftigungsbeginn", "Anstellungsdatum"],
+    "austritt":             ["Austritt", "Austrittsdatum", "Ende", "Beschäftigungsende"],
+    "teilzeit_vollzeit":    ["Teilzeit/Vollzeit", "Vollzeit", "TZ/VZ", "VZ/TZ", "Arbeitszeit", "TZ-VZ"],
+    "sv_nr":                ["SV Nr.", "SV-Nr.", "SV Nr", "SV-Nr", "SVNr", "Sozialversicherungsnummer", "Versicherungsnr.", "Versicherungsnummer", "RV-Nr", "RV Nr.", "Rentenversicherungsnummer"],
+    "steuer_id":            ["ID. Nr.", "ID.Nr.", "IdNr", "ID-Nr", "ID Nr", "Steuer-ID", "SteuerID", "Steueridentifikationsnummer", "Steuer-Id-Nr", "StID"],
+    # Form-only fields — only land in the Excel if the template has matching columns.
+    "steuerklasse":         ["Steuerklasse", "St.Kl.", "StKl", "Steuer-Klasse", "Lohnsteuerklasse", "Stkl"],
+    "konfession":           ["Konfession", "Kirchensteuer", "Religion", "Konfess."],
+    "kinderfreibetrag":     ["Kinderfreibetrag", "Kinderfreibeträge", "KFB", "Anzahl Kinder", "Kinder"],
+    "monatlicher_freibetrag": ["Monatlicher Freibetrag", "Freibetrag", "Monatsfreibetrag", "Mtl. Freibetrag"],
+    "krankenkasse":         ["Krankenkasse", "KK", "Krankenversicherung", "Kasse"],
+    "iban":                 ["IBAN", "Iban"],
+    "bic":                  ["BIC", "Bic", "SWIFT", "SWIFT/BIC"],
+    "geldinstitut":         ["Geldinstitut", "Bank", "Kreditinstitut", "Bankname"],
 }
 
 
