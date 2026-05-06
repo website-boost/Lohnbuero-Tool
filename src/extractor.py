@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from typing import Callable, Optional
@@ -118,9 +119,15 @@ EXTRACTION_TOOL = {
             "konfession": {
                 "type": ["string", "null"],
                 "description": (
-                    "Konfession / Kirchensteuermerkmal. Übliche Kürzel: 'rk' (römisch-katholisch), "
-                    "'ev' (evangelisch), 'ak' (altkatholisch), '--' oder leer = keine Kirchensteuer. "
-                    "Steht meist in der Steuermerkmal-Zeile beim Kopf der Abrechnung."
+                    "Konfession / Kirchensteuermerkmal. Steht im Kopfbereich in der "
+                    "GLEICHEN Tabellenzeile wie Steuerklasse und Kinderfreibetrag, "
+                    "typischerweise in einer Spalte mit Header 'Kon-fession', "
+                    "'Konfession' oder 'Kirchen-steuer'. "
+                    "Übliche Werte: 'rk' (römisch-katholisch), 'ev' (evangelisch), "
+                    "'ak' (altkatholisch), '--' (keine Kirchensteuer). "
+                    "Wichtig: WENN das Feld auf der Abrechnung sichtbar ist (egal ob mit Wert "
+                    "oder mit '--'), dann den genauen Inhalt zurückgeben. Auch '--' ist eine "
+                    "gültige Information ('keine Kirche'). Nur null wenn das Feld komplett fehlt."
                 ),
             },
             "kinderfreibetrag": {
@@ -331,25 +338,33 @@ def extract_pages(
     pages: list[tuple[bytes, str]],
     api_key: str,
     model: str = "claude-opus-4-7",
-    max_workers: int = 3,
+    max_workers: int = 2,
     progress_cb: Optional[Callable[[int, int], None]] = None,
+    log_cb: Optional[Callable[[str], None]] = None,
 ) -> list[PageResult]:
-    """Run extraction over a list of pages in parallel.
+    """Run extraction over a list of pages in parallel, with a sequential
+    retry pass for any failures.
 
     Each page is `(bytes, mime_type)` — `application/pdf` or `image/*`.
-    `progress_cb(done, total)` is called whenever a page completes.
-    Results are returned in original page order.
+    `progress_cb(done, total)` reports progress; `log_cb(msg)` lets the
+    caller surface intermediate status (used to report the retry phase).
 
-    `max_workers=3` keeps the concurrent request count low enough to stay
-    within Tier 1 / 2 rate limits even with image-heavy payloads. The
-    Anthropic SDK is configured with `max_retries=5` so transient 429s
-    get retried with exponential backoff before we surface them as errors.
+    Strategy:
+    1. Parallel pass with `max_workers` workers, SDK auto-retries 429s with
+       exponential backoff up to 8 times.
+    2. If any pages still failed (typically per-minute token bucket
+       exhausted), wait 30 s for the bucket to refill, then retry those
+       pages SEQUENTIALLY one by one. Sequential = no concurrency stress,
+       maximum chance of success.
+
+    Results are returned in original page order.
     """
-    client = anthropic.Anthropic(api_key=api_key, max_retries=5)
+    client = anthropic.Anthropic(api_key=api_key, max_retries=8)
     total = len(pages)
     results: list[Optional[PageResult]] = [None] * total
     done = 0
 
+    # Pass 1 — parallel
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         future_to_idx = {
             pool.submit(
@@ -363,5 +378,27 @@ def extract_pages(
             done += 1
             if progress_cb:
                 progress_cb(done, total)
+
+    # Pass 2 — sequential retry for failures
+    failed_idx = [i for i, r in enumerate(results) if r is not None and r.error]
+    if failed_idx:
+        if log_cb:
+            log_cb(
+                f"\n⏳ {len(failed_idx)} Seite(n) gescheitert — warte 30 Sekunden, "
+                f"dann Einzelversuch nacheinander…"
+            )
+        time.sleep(30)
+        for i in failed_idx:
+            page_bytes, mime = pages[i]
+            if log_cb:
+                log_cb(f"  → Wiederhole Seite {i+1}…")
+            results[i] = extract_and_verify_page(
+                client, model, page_bytes, mime, i + 1
+            )
+            if log_cb and results[i] is not None:
+                if results[i].error:
+                    log_cb(f"    ✗ Seite {i+1}: weiterhin Fehler")
+                else:
+                    log_cb(f"    ✓ Seite {i+1} jetzt erfolgreich")
 
     return [r for r in results if r is not None]

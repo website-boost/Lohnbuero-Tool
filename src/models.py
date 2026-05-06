@@ -62,7 +62,10 @@ FIELD_LABEL_ALIASES: dict[str, list[str]] = {
     "steuer_id":            ["ID. Nr.", "ID.Nr.", "IdNr", "ID-Nr", "ID Nr", "Steuer-ID", "SteuerID", "Steueridentifikationsnummer", "Steuer-Id-Nr", "StID"],
     # Form-only fields — only land in the Excel if the template has matching columns.
     "steuerklasse":         ["Steuerklasse", "St.Kl.", "StKl", "Steuer-Klasse", "Lohnsteuerklasse", "Stkl"],
-    "konfession":           ["Konfession", "Kirchensteuer", "Religion", "Konfess."],
+    "konfession":           ["Konfession", "Kirchensteuer", "Religion", "Konfess.",
+                             "KiSt", "Ki-St", "K-Steuer", "K.Steuer", "Kirche",
+                             "Kirchsteuer", "Kirchensteuermerkmal", "Kirchensteuerpflicht",
+                             "Religionszugehörigkeit"],
     "kinderfreibetrag":     ["Kinderfreibetrag", "Kinderfreibeträge", "KFB", "Anzahl Kinder", "Kinder"],
     "monatlicher_freibetrag": ["Monatlicher Freibetrag", "Freibetrag", "Monatsfreibetrag", "Mtl. Freibetrag"],
     "krankenkasse":         ["Krankenkasse", "KK", "Krankenversicherung", "Kasse"],

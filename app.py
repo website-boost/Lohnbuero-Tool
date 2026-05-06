@@ -419,7 +419,8 @@ class ExtractionWorker(QThread):
 
             page_results = extract_pages(
                 all_pages, api_key=self.api_key, model=self.model,
-                max_workers=3, progress_cb=on_progress,
+                max_workers=2, progress_cb=on_progress,
+                log_cb=lambda msg: self.log.emit(msg),
             )
             errored = [p for p in page_results if p.error]
             ok_count = total - len(errored)

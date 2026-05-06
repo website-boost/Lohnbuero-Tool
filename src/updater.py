@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -117,22 +118,33 @@ def download_and_apply_update(info: UpdateInfo, on_progress=None) -> None:
                 if on_progress and total:
                     on_progress(downloaded, total)
 
-    # Build the swap script. cmd.exe semantics:
-    # - timeout: wait for current process to exit
-    # - move /y: replace the running EXE (we already exited)
-    # - start "": relaunch
-    # - del "%~f0": script deletes itself
+    # Build the swap script with retry loop so it survives:
+    # - the EXE being briefly locked while PyInstaller cleans up
+    # - antivirus scanning the new file before it's released
+    # The loop tries every 1s until move succeeds (or 30s timeout).
     bat_content = (
         '@echo off\r\n'
-        'timeout /t 2 /nobreak >nul\r\n'
-        f'move /y "{new_exe}" "{current_exe}" >nul\r\n'
+        'timeout /t 3 /nobreak >nul\r\n'
+        'set /a tries=0\r\n'
+        ':try_move\r\n'
+        f'move /y "{new_exe}" "{current_exe}" >nul 2>&1\r\n'
+        'if errorlevel 1 (\r\n'
+        '  set /a tries+=1\r\n'
+        '  if %tries% geq 30 goto give_up\r\n'
+        '  timeout /t 1 /nobreak >nul\r\n'
+        '  goto try_move\r\n'
+        ')\r\n'
         f'start "" "{current_exe}"\r\n'
+        'del "%~f0"\r\n'
+        'exit\r\n'
+        ':give_up\r\n'
+        'echo Update fehlgeschlagen — bitte manuell die neue EXE installieren.\r\n'
+        'pause\r\n'
         'del "%~f0"\r\n'
     )
     bat_path.write_text(bat_content, encoding="utf-8")
 
-    # Launch the script detached, then exit. CREATE_NEW_PROCESS_GROUP +
-    # DETACHED_PROCESS so it survives our exit.
+    # Launch the script detached so it survives our exit.
     DETACHED = 0x00000008
     NEW_GROUP = 0x00000200
     subprocess.Popen(
@@ -140,5 +152,9 @@ def download_and_apply_update(info: UpdateInfo, on_progress=None) -> None:
         creationflags=DETACHED | NEW_GROUP,
         close_fds=True,
     )
-    # Give Windows a moment to spawn the child, then exit.
-    os._exit(0)
+    # Give the spawned process a beat to fully detach, THEN exit normally
+    # (sys.exit, not os._exit) so PyInstaller can clean up its MEIPASS
+    # temp folder — otherwise the next launch shows a "Failed to load
+    # Python DLL" warning referencing the orphaned folder.
+    time.sleep(0.5)
+    sys.exit(0)
