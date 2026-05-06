@@ -365,6 +365,8 @@ class WizardState:
     last_ib_count: int = 0
     last_antrag_dir: Path | None = None
     last_antrag_count: int = 0
+    last_errored_pages: int = 0
+    last_total_pages: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -383,8 +385,8 @@ class UpdateCheckWorker(QThread):
 class ExtractionWorker(QThread):
     progress = Signal(int, int, str)
     log = Signal(str)
-    # excel_path|None, records, num_uncertain, ib_dir|None, ib_count, antrag_dir|None, antrag_count
-    finished_ok = Signal(object, list, int, object, int, object, int)
+    # excel_path|None, records, num_uncertain, ib_dir|None, ib_count, antrag_dir|None, antrag_count, errored_pages, total_pages
+    finished_ok = Signal(object, list, int, object, int, object, int, int, int)
     failed = Signal(str)
 
     def __init__(self, state: WizardState, api_key: str, model: str) -> None:
@@ -417,11 +419,28 @@ class ExtractionWorker(QThread):
 
             page_results = extract_pages(
                 all_pages, api_key=self.api_key, model=self.model,
-                max_workers=5, progress_cb=on_progress,
+                max_workers=3, progress_cb=on_progress,
             )
-            for p in page_results:
-                if p.error:
-                    self.log.emit(f"  ⚠ Seite {p.page_number}: {p.error}")
+            errored = [p for p in page_results if p.error]
+            ok_count = total - len(errored)
+            if errored:
+                self.log.emit(
+                    f"\n⚠ {len(errored)} von {total} Seiten konnten NICHT extrahiert werden:"
+                )
+                rate_limit_hits = 0
+                for p in errored:
+                    err_short = p.error.split('\n')[0] if p.error else ""
+                    self.log.emit(f"    Seite {p.page_number}: {err_short}")
+                    if "RateLimit" in (p.error or "") or "429" in (p.error or ""):
+                        rate_limit_hits += 1
+                if rate_limit_hits:
+                    self.log.emit(
+                        f"  → {rate_limit_hits}× Rate-Limit. Tipp: warte 1-2 Minuten und "
+                        f"starte nochmal — oder kontaktiere Anthropic für ein Tier-Upgrade."
+                    )
+                self.log.emit(f"\n✓ {ok_count} von {total} Seiten erfolgreich extrahiert.")
+            else:
+                self.log.emit(f"\n✓ Alle {total} Seiten erfolgreich extrahiert.")
 
             self.log.emit("Aggregiere Mitarbeiter…")
             records = aggregate_pages(page_results)
@@ -467,6 +486,7 @@ class ExtractionWorker(QThread):
             self.finished_ok.emit(
                 excel_path, records, num_uncertain,
                 ib_dir, ib_count, antrag_dir, antrag_count,
+                len(errored), total,
             )
         except Exception:
             self.failed.emit(traceback.format_exc())
@@ -887,10 +907,18 @@ class Step5_Done(StepBase):
 
         s = self.state
         n = len(s.last_records)
+        if s.last_errored_pages:
+            ok = s.last_total_pages - s.last_errored_pages
+            self._add_warn(
+                f"{s.last_errored_pages} von {s.last_total_pages} Seiten konnten NICHT "
+                f"verarbeitet werden (vermutlich Rate-Limit). Nur {ok} Seiten gingen "
+                f"durch — entsprechend fehlen Mitarbeiter im Ergebnis. Tipp: 1-2 Minuten "
+                f"warten und 'Neuer Durchlauf' starten."
+            )
         if n == 0:
             self._add_warn(
-                "Keine Mitarbeiter erkannt — schau ins Protokoll auf der vorigen Seite "
-                "(z.B. Schritt zurück), ob die Extraktion gescheitert ist."
+                "Keine Mitarbeiter erkannt — schau ins Protokoll auf der vorigen Seite, "
+                "ob die Extraktion gescheitert ist."
             )
         else:
             self._add_check(f"{n} Mitarbeiter aus den Lohnabrechnungen extrahiert")
@@ -1108,6 +1136,7 @@ class MainWindow(QMainWindow):
     def _on_extraction_done(
         self, excel_path, records, num_uncertain,
         ib_dir, ib_count, antrag_dir, antrag_count,
+        errored_pages, total_pages,
     ) -> None:
         loading = self.steps[3]
         if isinstance(loading, Step4_Loading): loading.stop()
@@ -1119,6 +1148,8 @@ class MainWindow(QMainWindow):
         self.state.last_ib_count = ib_count
         self.state.last_antrag_dir = antrag_dir
         self.state.last_antrag_count = antrag_count
+        self.state.last_errored_pages = errored_pages
+        self.state.last_total_pages = total_pages
         self._goto(4)
 
     def _on_extraction_failed(self, error: str) -> None:

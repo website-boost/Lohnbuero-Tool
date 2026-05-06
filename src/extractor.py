@@ -331,7 +331,7 @@ def extract_pages(
     pages: list[tuple[bytes, str]],
     api_key: str,
     model: str = "claude-opus-4-7",
-    max_workers: int = 5,
+    max_workers: int = 3,
     progress_cb: Optional[Callable[[int, int], None]] = None,
 ) -> list[PageResult]:
     """Run extraction over a list of pages in parallel.
@@ -339,8 +339,13 @@ def extract_pages(
     Each page is `(bytes, mime_type)` — `application/pdf` or `image/*`.
     `progress_cb(done, total)` is called whenever a page completes.
     Results are returned in original page order.
+
+    `max_workers=3` keeps the concurrent request count low enough to stay
+    within Tier 1 / 2 rate limits even with image-heavy payloads. The
+    Anthropic SDK is configured with `max_retries=5` so transient 429s
+    get retried with exponential backoff before we surface them as errors.
     """
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, max_retries=5)
     total = len(pages)
     results: list[Optional[PageResult]] = [None] * total
     done = 0
