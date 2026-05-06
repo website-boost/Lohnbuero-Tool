@@ -6,6 +6,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write   # needed to create/update GitHub Releases
+
 jobs:
   build:
     runs-on: windows-latest
