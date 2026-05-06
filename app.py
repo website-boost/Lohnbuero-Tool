@@ -12,9 +12,10 @@ from dotenv import load_dotenv
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, QSettings, QUrl
 from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
-    QPlainTextEdit, QStackedWidget, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+    QFormLayout, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QMainWindow, QMessageBox, QProgressBar, QPushButton, QPlainTextEdit,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from src.aggregator import aggregate_pages
@@ -210,6 +211,26 @@ QMessageBox {{ background-color: {COLORS['bg_elevated']}; }}
 # Settings helpers
 # ---------------------------------------------------------------------------
 
+DEFAULT_MODEL = "claude-sonnet-4-6"
+
+# Model options shown in the settings dropdown.
+# (model_id, label, cost_hint, quality_hint)
+MODEL_CHOICES: list[tuple[str, str, str, str]] = [
+    ("claude-sonnet-4-6",
+     "⚖️ Sonnet 4.6 — empfohlen",
+     "ca. 6 Cent / Seite",
+     "Sehr gute Qualität bei strukturierter Datenextraktion."),
+    ("claude-opus-4-7",
+     "💎 Opus 4.7 — Premium",
+     "ca. 10 Cent / Seite",
+     "Höchste Qualität — sinnvoll bei sehr schlechten Scans."),
+    ("claude-haiku-4-5",
+     "💸 Haiku 4.5 — günstigste Option",
+     "ca. 2 Cent / Seite",
+     "Bei verpixelten Scans kann die Qualität nachlassen."),
+]
+
+
 def get_api_key() -> str | None:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
@@ -220,6 +241,24 @@ def get_api_key() -> str | None:
 
 def store_api_key(key: str) -> None:
     QSettings(ORG_NAME, APP_NAME).setValue("api_key", key.strip())
+
+
+def get_model() -> str:
+    """Resolve the active Claude model.
+
+    Precedence: ANTHROPIC_MODEL env var > stored setting > DEFAULT_MODEL.
+    """
+    env = os.environ.get("ANTHROPIC_MODEL")
+    if env:
+        return env.strip()
+    stored = QSettings(ORG_NAME, APP_NAME).value("model")
+    if stored and isinstance(stored, str) and stored.strip():
+        return stored.strip()
+    return DEFAULT_MODEL
+
+
+def store_model(model_id: str) -> None:
+    QSettings(ORG_NAME, APP_NAME).setValue("model", model_id)
 
 
 def verify_api_key(api_key: str) -> tuple[bool, str]:
@@ -235,6 +274,70 @@ def verify_api_key(api_key: str) -> tuple[bool, str]:
         return False, f"API-Key ungültig: {exc}"
     except Exception as exc:
         return False, f"Verbindung fehlgeschlagen: {type(exc).__name__}: {exc}"
+
+
+class SettingsDialog(QDialog):
+    """API-Key + Modell-Auswahl in einem Dialog."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Einstellungen")
+        self.setMinimumWidth(520)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+
+        # API key
+        layout.addWidget(self._label("ANTHROPIC API-KEY"))
+        self.key_edit = QLineEdit(get_api_key() or "")
+        self.key_edit.setEchoMode(QLineEdit.Password)
+        self.key_edit.setPlaceholderText("sk-ant-…")
+        layout.addWidget(self.key_edit)
+
+        # Model picker
+        layout.addWidget(self._label("MODELL"))
+        self.model_combo = QComboBox()
+        for model_id, label, cost, _quality in MODEL_CHOICES:
+            self.model_combo.addItem(f"{label}  ·  {cost}", userData=model_id)
+
+        current = get_model()
+        idx = next(
+            (i for i, (mid, *_) in enumerate(MODEL_CHOICES) if mid == current), 0,
+        )
+        self.model_combo.setCurrentIndex(idx)
+        layout.addWidget(self.model_combo)
+
+        self.model_hint = QLabel("")
+        self.model_hint.setWordWrap(True)
+        self.model_hint.setObjectName("stepHint")
+        layout.addWidget(self.model_hint)
+        self.model_combo.currentIndexChanged.connect(self._update_hint)
+        self._update_hint()
+
+        # Buttons
+        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self._save)
+        bb.rejected.connect(self.reject)
+        layout.addWidget(bb)
+
+    def _label(self, t: str) -> QLabel:
+        l = QLabel(t)
+        l.setObjectName("sectionLabel")
+        return l
+
+    def _update_hint(self) -> None:
+        idx = self.model_combo.currentIndex()
+        if 0 <= idx < len(MODEL_CHOICES):
+            self.model_hint.setText(MODEL_CHOICES[idx][3])
+
+    def _save(self) -> None:
+        key = self.key_edit.text().strip()
+        if key:
+            store_api_key(key)
+        model_id = self.model_combo.currentData()
+        if model_id:
+            store_model(model_id)
+        self.accept()
 
 
 # ---------------------------------------------------------------------------
@@ -850,8 +953,8 @@ class MainWindow(QMainWindow):
         title_row = QHBoxLayout()
         title = QLabel("✨ Lohnbüro-Tool"); title.setObjectName("title")
         title_row.addWidget(title); title_row.addStretch(1)
-        api_btn = QPushButton("🔑 API-Key"); api_btn.clicked.connect(self.set_api_key)
-        title_row.addWidget(api_btn)
+        settings_btn = QPushButton("⚙️ Einstellungen"); settings_btn.clicked.connect(self.open_settings)
+        title_row.addWidget(settings_btn)
         ver = QLabel(f"v{__version__}"); ver.setObjectName("subtitle")
         title_row.addWidget(ver)
         hl.addLayout(title_row)
@@ -922,17 +1025,15 @@ class MainWindow(QMainWindow):
         self.state.last_antrag_count = 0
         self._goto(0)
 
-    # --- API key ---
+    # --- Settings ---
 
-    def set_api_key(self) -> None:
-        current = get_api_key() or ""
-        key, ok = QInputDialog.getText(
-            self, "Anthropic API-Key", "API-Key (sk-ant-…):",
-            QLineEdit.Password, current,
-        )
-        if ok and key.strip():
-            store_api_key(key.strip())
-            QMessageBox.information(self, "Gespeichert", "API-Key wurde gespeichert.")
+    def open_settings(self) -> None:
+        dlg = SettingsDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            QMessageBox.information(
+                self, "Gespeichert",
+                "Einstellungen wurden gespeichert.",
+            )
 
     # --- Update flow ---
 
@@ -978,7 +1079,7 @@ class MainWindow(QMainWindow):
         if not api_key:
             QMessageBox.warning(
                 self, "API-Key fehlt",
-                "Bitte zuerst oben rechts den API-Key setzen.",
+                "Bitte zuerst oben rechts unter 'Einstellungen' den API-Key setzen.",
             )
             return
 
@@ -987,16 +1088,16 @@ class MainWindow(QMainWindow):
         if not ok:
             QMessageBox.critical(
                 self, "API-Key Problem",
-                f"{msg}\n\nBitte über den Button 'API-Key' oben einen gültigen Key setzen.",
+                f"{msg}\n\nBitte über 'Einstellungen' oben rechts einen gültigen Key setzen.",
             )
             return
 
+        model = get_model()
         self._goto(3)  # loading slide
         loading = self.steps[3]
         assert isinstance(loading, Step4_Loading)
-        loading.append_log(f"✓ API-Key ok (Modell: {os.environ.get('ANTHROPIC_MODEL', 'claude-opus-4-7')})")
+        loading.append_log(f"✓ API-Key ok (Modell: {model})")
 
-        model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")
         self.worker = ExtractionWorker(self.state, api_key, model)
         self.worker.progress.connect(loading.set_progress)
         self.worker.log.connect(loading.append_log)

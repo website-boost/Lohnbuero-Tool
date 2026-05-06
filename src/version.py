@@ -5,7 +5,7 @@ format `vX.Y.Z` (e.g. `v0.2.0`) — see GitHub Actions workflow.
 """
 from __future__ import annotations
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 # GitHub repo to check for new releases. Format: "owner/repo".
 # Set this once your code is on GitHub. Leave as None to disable update checks.
